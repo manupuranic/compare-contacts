@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contact Comparison</title>
+  <!-- Bootstrap CSS -->
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+  <style>
+    .loading {
+      display: none;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container mt-5">
+    <h1 class="mb-4">Contact Comparison</h1>
+    <div class="form-group">
+      <label for="zakyaFile">Upload Zakya contacts:</label>
+      <input type="file" id="zakyaFile" accept=".csv" class="form-control-file">
+    </div>
+    <div class="form-group">
+      <label for="googleFile">Upload Google contacts:</label>
+      <input type="file" id="googleFile" accept=".csv" class="form-control-file">
+    </div>
+    <button id="compareBtn" class="btn btn-primary d-block">Compare Contacts</button>
+    <div class="loading mt-3">
+      <div class="spinner-border text-primary" role="status">
+        <span class="sr-only">Loading...</span>
+      </div>
+    </div>
+    <div class="mt-3 d-inline">Number of zakya contacts not in google:<span id="missingCounter" class="font-weight-bold"></span></div>
+    <button id="downloadBtn" class="btn btn-primary m-3 d-inline ml-5" style="display:none;">Download Missing Contacts</button>
+    <div id="result" class="mt-3"></div>
+  </div>
+
+  <!-- Bootstrap JS -->
+  <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
+  <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+  <!-- PapaParse JS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+  <script>
+    document.getElementById('compareBtn').addEventListener('click', function() {
+      let zakyaFile = document.getElementById('zakyaFile').files[0];
+      let googleFile = document.getElementById('googleFile').files[0];
+
+      if (!zakyaFile || !googleFile) {
+        alert('Please select both CSV files.');
+        return;
+      }
+
+      let zakyaReader = new FileReader();
+      zakyaReader.onload = function(e) {
+        let zakyaData = Papa.parse(e.target.result).data;
+
+        let googleReader = new FileReader();
+        googleReader.onload = function(e) {
+          let googleData = Papa.parse(e.target.result).data;
+
+          try {
+            compareContacts(zakyaData, googleData);
+          } catch (error) {
+            alert('Error comparing contacts: ' + error.message);
+          }
+        };
+        googleReader.onerror = function(e) {
+          alert('Error reading Google contacts file.');
+        };
+        googleReader.readAsText(googleFile);
+      };
+      zakyaReader.onerror = function(e) {
+        alert('Error reading Zakya contacts file.');
+      };
+      zakyaReader.readAsText(zakyaFile);
+
+      document.querySelector('.loading').style.display = 'block';
+    });
+
+    function compareContacts(zakyaContacts, googleContacts) {
+      let missingContacts = [];
+      let totalComparisons = zakyaContacts.length;
+      let comparisonsDone = 0;
+
+      let googleContactsObj = {}; // Object to store Google contacts with normalized phone numbers as keys
+
+      // Populate Google contacts object
+      for (let i = 0; i < googleContacts.length; i++) {
+        let googleContact = googleContacts[i];
+        if (googleContact && googleContact[0] !== "Name" && googleContact.length >= 2) {
+          let googlePhoneNumber = googleContact[1].replace(/\D/g, ''); // Assuming phone number is in second column
+          googlePhoneNumber = normalizePhoneNumber(googlePhoneNumber);
+          googleContactsObj[googlePhoneNumber] = true;
+        }
+      }
+
+      // Compare Zakya contacts with Google contacts object
+      for (let i = 0; i < zakyaContacts.length; i++) {
+        let zakyaContact = zakyaContacts[i];
+        if (zakyaContact && zakyaContact[0] !== "Name" && zakyaContact.length >= 2) {
+          let zakyaPhoneNumber = zakyaContact[1].replace(/\D/g, ''); // Assuming phone number is in second column
+          if (!googleContactsObj[normalizePhoneNumber(zakyaPhoneNumber)]) {
+            if(zakyaContact[1].length >= 10){
+              missingContacts.push(zakyaContact);
+            }
+          }
+        }
+        comparisonsDone++;
+      }
+
+      // Display missing contacts count
+      displayMissingCount(missingContacts.length);
+
+      // Comparison complete, display result
+      displayResult(missingContacts);
+    }
+
+    function normalizePhoneNumber(phoneNumber) {
+      // Remove all non-digit characters
+      phoneNumber = phoneNumber.replace(/\D/g, '');
+
+      // If the phone number starts with '91' and has more than 10 digits, remove the first two digits
+      if (phoneNumber.length > 10 && phoneNumber.startsWith('91')) {
+        phoneNumber = phoneNumber.substring(2);
+      }
+
+      return phoneNumber;
+    }
+
+    function displayMissingCount(count) {
+      document.getElementById('missingCounter').innerText = count;
+    }
+
+    function displayResult(contacts) {
+      let resultDiv = document.getElementById('result');
+      resultDiv.innerHTML = '';
+      document.querySelector('.loading').style.display = 'none';
+
+      if (contacts.length === 0) {
+        resultDiv.innerHTML = '<p>No missing contacts found.</p>';
+      } else {
+        let table = '<table class="table"><thead><tr><th>Name</th><th>Phone</th></tr></thead><tbody>';
+
+        contacts.forEach(contact => {
+          table += '<tr><td>' + contact[0] + '</td><td>' + contact[1] + '</td></tr>';
+        });
+
+        table += '</tbody></table>';
+        resultDiv.innerHTML = table;
+
+        // Show download button
+        document.getElementById('downloadBtn').style.display = 'block';
+        document.getElementById('downloadBtn').addEventListener('click', function() {
+          downloadMissingContacts(contacts);
+        });
+      }
+    }
+
+    function downloadMissingContacts(contacts) {
+      let csvContent = 'data:text/csv;charset=utf-8,';
+      csvContent += 'Name,Phone\n'; // Header
+
+      contacts.forEach(contact => {
+        // Ensure that the contact name is properly enclosed within double quotes
+        let name = '"' + contact[0].replace(/"/g, '""') + '"';
+        let phone = contact[1];
+        csvContent += name + ',' + phone + '\n';
+      });
+
+      // Create a blob
+      let encodedUri = encodeURI(csvContent);
+      let link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', 'missing_contacts.csv');
+      document.body.appendChild(link);
+
+      // Click the link to trigger download
+      link.click();
+    }
+  </script>
+</body>
+</html>
